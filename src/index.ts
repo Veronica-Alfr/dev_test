@@ -1,8 +1,10 @@
 import 'reflect-metadata';
-import express from 'express';
+import express,  { Request, Response, NextFunction } from 'express';
 import { DataSource } from 'typeorm';
 import { User } from './entity/User';
 import { Post } from './entity/Post';
+import errorMiddleware from './middlewares/errors/errors';
+import { validatePost, validateUser } from './middlewares/validations/schemas';
 
 const app = express();
 app.use(express.json());
@@ -33,13 +35,51 @@ const initializeDatabase = async () => {
 
 initializeDatabase();
 
-app.post('/users', async (req, res) => {
-// Crie o endpoint de users
+app.post('/users', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const validatedUser = validateUser(req.body);
+
+    const userRepository = AppDataSource.getRepository(User);
+
+    const user = userRepository.create(validatedUser);
+
+    await userRepository.save(user);
+
+    return res.status(201).json(user);
+  } catch (error) {
+    next(error);
+  }
 });
 
-app.post('/posts', async (req, res) => {
-// Crie o endpoint de posts
+app.post('/posts', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const validatedPost = validatePost(req.body);
+
+    const postRepository = AppDataSource.getRepository(Post);
+    const userRepository = AppDataSource.getRepository(User);
+    
+    const user = await userRepository.findOneBy({ id: validatedPost.userId });
+
+    if (!user) {
+      const error = new Error('User not found');
+      error.name = 'NotFound';
+      return next(error);
+    }
+
+    const post = postRepository.create({
+      ...validatedPost,
+      userId: user.id,
+    });
+
+    await postRepository.save(post);
+
+    return res.status(201).json(post);
+  } catch (error) {
+    next(error);
+  }
 });
+
+app.use(errorMiddleware);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
